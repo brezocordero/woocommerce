@@ -49,8 +49,36 @@ class Reviews {
 		self::add_action( 'wp_ajax_replyto-comment', [ $this, 'handle_reply_to_review' ], -1 );
 
 		self::add_filter( 'parent_file', [ $this, 'edit_review_parent_file' ] );
-		self::add_filter( 'gettext', [ $this, 'edit_comments_screen_text' ], 10, 2 );
+		if ( is_admin() ) {
+			self::add_action( 'current_screen', array( $this, 'reviews_edit_text' ) );
+		}
 		self::add_action( 'admin_notices', [ $this, 'display_notices' ] );
+	}
+
+	/**
+	 * Adds a filter to change the text on the comments edit screen for product reviews.
+	 *
+	 * @return void
+	 */
+	private function reviews_edit_text(): void {
+		global $comment;
+		$current_comment = $comment;
+		$screen          = get_current_screen();
+
+		// Check if we are in the edit comment screens.
+		if ( isset( $screen->id ) && ( 'comment' === $screen->id ) ) {
+
+			// Try to get comment from query params when not in context already.
+			if ( ! $current_comment && isset( $_GET['action'], $_GET['c'] ) && ( 'editcomment' === $_GET['action'] || 'spam' === $_GET['action'] ) ) {
+				$comment_id      = absint( $_GET['c'] );
+				$current_comment = get_comment( $comment_id );
+			}
+
+			// Add the filter to modify the title of the screen if the comment is a product review.
+			if ( isset( $current_comment->comment_post_ID ) && get_post_type( $current_comment->comment_post_ID ) === 'product' ) {
+				self::add_filter( 'gettext', array( $this, 'edit_comments_screen_text' ), 10, 2 );
+			}
+		}
 	}
 
 	/**
@@ -532,30 +560,25 @@ class Reviews {
 	protected function edit_comments_screen_text( $translation, $text ) {
 		global $comment;
 
-		// Bail out if not a text we should replace.
-		if ( ! in_array( $text, [ 'Edit Comment', 'Moderate Comment' ], true ) ) {
+		if ( ! isset( $comment ) ) {
 			return $translation;
 		}
 
-		// Try to get comment from query params when not in context already.
-		if ( ! $comment && isset( $_GET['action'], $_GET['c'] ) && $_GET['action'] === 'editcomment' ) {
-			$comment_id = absint( $_GET['c'] );
-			$comment    = get_comment( $comment_id ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		// Bail out if not a text we should replace.
+		if ( ! in_array( $text, array( 'Edit Comment', 'Moderate Comment' ), true ) ) {
+			return $translation;
 		}
 
 		$is_reply = isset( $comment->comment_parent ) && $comment->comment_parent > 0;
 
-		// Only replace the translated text if we are editing a comment left on a product (ie. a review).
-		if ( isset( $comment->comment_post_ID ) && get_post_type( $comment->comment_post_ID ) === 'product' ) {
-			if ( $text === 'Edit Comment' ) {
-				$translation = $is_reply
-					? __( 'Edit Review Reply', 'woocommerce' )
-					: __( 'Edit Review', 'woocommerce' );
-			} elseif ( $text === 'Moderate Comment' ) {
-				$translation = $is_reply
-					? __( 'Moderate Review Reply', 'woocommerce' )
-					: __( 'Moderate Review', 'woocommerce' );
-			}
+		if ( 'Edit Comment' === $text ) {
+			$translation = $is_reply
+				? __( 'Edit Review Reply', 'woocommerce' )
+				: __( 'Edit Review', 'woocommerce' );
+		} elseif ( 'Moderate Comment' === $text ) {
+			$translation = $is_reply
+				? __( 'Moderate Review Reply', 'woocommerce' )
+				: __( 'Moderate Review', 'woocommerce' );
 		}
 
 		return $translation;
